@@ -1,0 +1,2 @@
+
+"C:\Program files\Internet Explorer\iexplore.exe" "http://asrd1/ReportServer/Pages/ReportViewer.aspx?/Allied+Reports/Report+Definitions/AMCTR61 - Cash Receipt&Languages=%1&Site=%2&iReceiptNo=%3&rs:Format=PDF"

@@ -1,0 +1,28 @@
+I ADAUGARE ARTICOL PE BON
+
+q;1;BATERIE LITIU CR2;A;150;1000;150;;
+
+
+unde :
+"q" - tipul taskului;
+"1" - adaugare articol;
+"BATERIE LITIU CR2" - denumire produs - 18 caractere maxim;
+"A" - cota TVA poate sa die B, C, D ,E sau Z - fara TVA;
+"150" - pret unitar (ultimele 2 reprezinta zecimalele);
+"1000" - cantitatea (ultimile 3 reprezinta zecimalele);
+"150" - pret unitar x cantitate;
+
+
+II FINALIZARE BON
+
+q;4;300;100;;200;;;
+
+"q" - tipul taskului;
+"4" - finalizare bon;
+"300" - total bon;
+"100"- plata cash;
+"200" - plata carte credit; 
+
+Daca se doreste executarea din directoare diferite aveti mai jos un exemplu:
+
+D:\casa2\TangoDrv.EXE CP=1 if=D:\casa\DATA_IN.txt

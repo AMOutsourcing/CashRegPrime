@@ -1,0 +1,30 @@
+I. Tetel hozzaadasa egy penztari bizonylathoz
+
+Pelda:
+q;1;BATERIE LITIU CR2;A;150;1000;150;;
+
+
+Magyarazat:
+
+"q" - muvelet tipusa;
+"1" - sor hozzafuzese;
+"BATERIE LITIU CR2" - cikk megnevezese - 18 karakter maximum;
+"A" - AFA kod ami meg felveheti a kovetkezo ertekeket B, C, D ,E vagy Z - AFA mentes;
+"150" - egysegar (utolso 2 szam a tizedest jelenti vagyis esetunkben 1,50);
+"1000" - darabszam (utolso 3 szam a tizedest jelenti);
+"150" - egysegar X darabszam = sorosszesen;
+
+
+II. Penztari bizonylat veglegesitese
+
+q;4;300;100;;200;;;
+
+"q" - muvelet tipusa;
+"4" - bizonylat veglegesitese (osszegzes, fizetesi tipus);
+"300" - bizonylat osszesen;
+"100"- keszpenz osszesen;
+"200" - hitelkartya osszesen; 
+
+Amennyiben nem a telepitesi konyvtarba kerul a DATA_IN.txt fajl akkor a kovetkezo modon kell parameterezni a drivert:
+
+D:\casa2\TangoDrv.EXE CP=1 if=D:\casa\DATA_IN.txt

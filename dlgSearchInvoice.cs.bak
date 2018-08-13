@@ -1,0 +1,53 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+
+using nsBaseClass;
+using log4net;
+using CashRegPrime.Model;
+
+namespace CashRegPrime
+{
+    public partial class dlgSearchInvoice : nsBaseClass.clsBaseDialog
+    {
+        clsCashBox CashBox = new clsCashBox();
+
+        public dlgSearchInvoice()
+        {
+            InitializeComponent();
+        }
+
+        private void pbOK_Click(object sender, EventArgs e)
+        {
+            string strpaidInvoice = ""; if (chkboxPaidInv.Checked == true) strpaidInvoice = "paid"; else strpaidInvoice = "unpaid";
+            dataGridView1.Rows.Clear();
+            dataGridView1.AllowUserToAddRows = true;
+            dataGridView1.Columns["colOrderNo"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            dataGridView1.Columns["colCustNo"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            dataGridView1.Columns["colInvoiceNo"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            dataGridView1.Columns["colReceiptNo"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            dataGridView1.Columns["colInvoiceSum"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            dataGridView1.Columns["colPaymentSum"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            dataGridView1.Columns["colInvoiceDate"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            dataGridView1.Columns["colPaymentDate"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+
+
+
+            if (chkboxVehichle.Checked == true) CashBox.fillGridViewVehicleSales(dataGridView1, strpaidInvoice);
+            if (chkboxCashreg.Checked == true) CashBox.fillGridViewCashRegister(dataGridView1, strpaidInvoice);
+            if (chkboxSpareparts.Checked == true) CashBox.fillGridViewSparePartSales(dataGridView1, strpaidInvoice);
+            if (chkboxWorkshop.Checked == true) CashBox.fillGridViewWorkshop(dataGridView1, strpaidInvoice);
+
+
+
+
+            dataGridView1.AllowUserToAddRows = false;
+            //MessageBox.Show("Something...");
+        }
+    }
+}

@@ -1,0 +1,56 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using log4net;
+using nsBaseClass;
+
+namespace CashRegPrime
+{
+    public partial class frmMain : nsBaseClass.clsBaseForm
+    {
+        public frmMain()
+        {
+            InitializeComponent();
+            this.Visible = false;
+        }
+
+        private void frmMain_Load(object sender, EventArgs e)
+        {
+            clsLoginDialog f = new clsLoginDialog();
+            DialogResult i = f.ShowDialog();
+            
+            if (i == DialogResult.OK)
+            {
+                objUtil.Localization.TranslateForm(this);
+                loadProfileData();
+                this.Text = objGlobal.DMSFirstUserName + "@" + objAppConfig.getSiteNameOnScreen();
+
+                this.Visible = true;
+
+            }
+            else
+            {
+                Application.Exit();
+            }
+        }
+
+        private void pbOpenCashBox_Click(object sender, EventArgs e)
+        {
+            dlgOpenCashBox dlg = new dlgOpenCashBox();
+            dlg.ShowDialog();
+        }
+
+        private void pbCloseCashBox_Click(object sender, EventArgs e)
+        {
+            dlgCloseCashBox dlg = new dlgCloseCashBox();
+            dlg.ShowDialog();
+        }
+
+      
+    }
+}

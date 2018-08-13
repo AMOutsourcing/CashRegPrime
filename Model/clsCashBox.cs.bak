@@ -1,0 +1,466 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using nsBaseClass;
+using log4net;
+using System.Data;
+using System.Security.Principal;
+using System.Data.Odbc;
+
+using System.Configuration;
+namespace CashRegPrime.Model
+{
+    class clsCashBox
+    {
+        public DataTable CashBoxes = new DataTable();
+
+        public string getClientPCName()
+        {
+            string strRet = Environment.MachineName.ToString();
+            if (Environment.GetEnvironmentVariable("CLIENTNAME") != null)
+                strRet = Environment.GetEnvironmentVariable("CLIENTNAME").ToString();
+            return strRet;
+        }
+
+        public decimal getClosingBalance(string strCashBoxId)
+        {
+            decimal nRet = 0;
+            clsSqlFactory hSql = new clsSqlFactory();
+            hSql.NewCommand("select top 1 isnull(b.AMOUNT,0),a.UPDATED_DATE from CASHREG a," +
+                    " CASHREGROW b where a.ROWID = b.CASHREGROWID and a.CASHBOXID = ? and a.EVENT = 'O' " +
+                    " order by a.UPDATED_DATE desc");
+            hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+            hSql.ExecuteReader();
+            hSql.Read();
+
+            DateTime dtLastOpen = hSql.Reader.GetDateTime(1);
+            decimal nOpeningBalance = hSql.Reader.GetDecimal(0);
+            hSql.NewCommand("select isnull(sum(b.AMOUNT),0) as TOTAMOUNT from CASHTRANSH a, CASHTRANSR b" +
+                          " where a.CASHBOXID =? and a.RECEIPTNO = b.RECEIPTNO and a.UPDATED_DATE >=? ");
+            hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+            hSql.Com.Parameters.AddWithValue("LASTOPEN", dtLastOpen);
+            hSql.ExecuteReader();
+            hSql.Read();
+            nRet = hSql.Reader.GetDecimal(0) + nOpeningBalance;
+            return nRet;
+        }
+        public bool closeCashBox(string strCashBoxId)
+        {
+            bool bRet = true;
+            clsSqlFactory hSql = new clsSqlFactory();
+            clsGlobalVariable objGlobal = new clsGlobalVariable();
+            clsAppConfig objAppConfig = new clsAppConfig();
+
+            int NUSEID=objAppConfig.getNumberParam("CASHREG", "DEPRECNO", "V1", "");
+            try
+            {
+                hSql.NewCommand("select ISOPEN from CASHBOX where CASHBOXID=? and ISOPEN=1");
+                hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                hSql.ExecuteReader();
+                if (hSql.Read())
+                {
+                    hSql.NewCommand("update NUSE set RECNO=RECNO+1 where NUSEID=?");
+                    hSql.Com.Parameters.AddWithValue("NUSEID", NUSEID);
+                    hSql.ExecuteNonQuery();
+
+                    hSql.NewCommand("select RECNO from NUSE where NUSEID=?");
+                    hSql.Com.Parameters.AddWithValue("NUSEID", NUSEID);
+                    hSql.ExecuteReader();
+                    hSql.Read();
+                    int RECEIPTNO = hSql.Reader.GetInt32(0);
+
+                    hSql.NewCommand("update CASHBOX set ISOPEN=0 where CASHBOXID=?");
+                    hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                    hSql.ExecuteNonQuery();
+                    hSql.NewCommand("insert into CASHREG(CASHBOXID,SMANID,EVENT,UPDATED_DATE,UPDATED_BY,RECEIPTNO) values(?,?,'C',getdate(),?,?)");
+                    hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                    hSql.Com.Parameters.AddWithValue("SMANID", objGlobal.DefaultSManID);
+                    hSql.Com.Parameters.AddWithValue("UPDATED_BY", objGlobal.DMSFirstUserName);
+                    hSql.Com.Parameters.AddWithValue("RECEIPTNO", RECEIPTNO);
+                    hSql.ExecuteNonQuery();
+                    hSql.Com.Parameters.Clear();
+                    hSql.NewCommand("SELECT @@IDENTITY");
+                    hSql.ExecuteReader();
+                    hSql.Read();
+                    int nCashRegRowId = hSql.Reader.GetInt32(0);
+
+                    hSql.NewCommand("select top 1 isnull(b.AMOUNT,0),a.UPDATED_DATE from CASHREG a,"+
+                    " CASHREGROW b where a.ROWID = b.CASHREGROWID and a.CASHBOXID = ? and a.EVENT = 'O' "+
+                    " order by a.UPDATED_DATE desc");
+                    hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                    hSql.ExecuteReader();
+                    hSql.Read();
+
+                    DateTime dtLastOpen = hSql.Reader.GetDateTime(1);
+                    decimal nOpeningBalance = hSql.Reader.GetDecimal(0);
+                    hSql.NewCommand("insert into CASHREGROW(CASHREGROWID,ROWNO,CASHFORM,CASHTYPE,AMOUNT,QTY,UPDATED_DATE,UPDATED_BY) " +
+                        " select ?, row_number() over (partition by getdate() order by getdate()),CASHFORM,CASHTYPE,isnull(TOTAMOUNT,0),isnull(TOTQTY,0),getdate(),? from " +
+                        "(select b.CASHFORM,case b.CASHFORM when 'CASH' then '" + ConfigurationSettings.AppSettings["DefaultCashType"] + "' else b.CASHTYPE end as CASHTYPE,sum(b.AMOUNT) as TOTAMOUNT,sum(b.QTY) as TOTQTY from CASHTRANSH a, CASHTRANSR b" +
+                           " where a.CASHBOXID =? and a.RECEIPTNO = b.RECEIPTNO and a.UPDATED_DATE >=? " +
+                        " group by b.CASHFORM,case b.CASHFORM when 'CASH' then '"+ConfigurationSettings.AppSettings["DefaultCashType"]+"' else b.CASHTYPE end ) x");
+                    hSql.Com.Parameters.AddWithValue("CASHREGROWID", nCashRegRowId);
+                    hSql.Com.Parameters.AddWithValue("UPDATED_BY", objGlobal.DMSFirstUserName);
+                    
+                    hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                    hSql.Com.Parameters.AddWithValue("LASTOPEN", dtLastOpen);
+ 
+                    hSql.ExecuteNonQuery();
+
+                    hSql.NewCommand("select 1 from CASHREGROW where CASHREGROWID=? and CASHFORM='CASH'" );
+                    hSql.Com.Parameters.AddWithValue("CASHREGROWID", nCashRegRowId);
+                    hSql.ExecuteReader();
+                    if (hSql.Read())
+                    {
+                        hSql.NewCommand("update CASHREGROW set AMOUNT=AMOUNT+? where CASHREGROWID=? and CASHFORM='CASH'");
+                        hSql.Com.Parameters.AddWithValue("OPENBALANCE", nOpeningBalance);
+                        hSql.Com.Parameters.AddWithValue("CASHREGROWID", nCashRegRowId);
+                        hSql.ExecuteNonQuery();
+                    
+                    }
+                    else
+                    {
+                        hSql.NewCommand("insert into CASHREGROW(CASHREGROWID,ROWNO,CASHFORM,CASHTYPE,AMOUNT,QTY,UPDATED_DATE,UPDATED_BY) values(" +
+                                               "  ?, (select isnull(max(ROWNO),0)+1 from CASHREGROW where CASHREGROWID=? ),'CASH',?,?,0,getdate(),? )");
+                        hSql.Com.Parameters.AddWithValue("CASHREGROWID", nCashRegRowId);
+                        hSql.Com.Parameters.AddWithValue("CASHREGROWID2", nCashRegRowId);
+                        hSql.Com.Parameters.AddWithValue("CASHTYPE", ConfigurationSettings.AppSettings["DefaultCashType"]);
+
+                        hSql.Com.Parameters.AddWithValue("AMOUNT", nOpeningBalance);
+
+                        hSql.Com.Parameters.AddWithValue("UPDATED_BY", objGlobal.DMSFirstUserName);
+
+                        hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                        hSql.ExecuteNonQuery();
+                   
+                    }
+
+                    hSql.NewCommand("delete from CASHBOXPC where CASHBOXID = ?");
+                    hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                    hSql.ExecuteNonQuery();
+                }
+                else
+                {
+                    bRet = false;
+                }
+                if (bRet)
+                    hSql.Commit();
+                else
+                    hSql.Rollback();
+            }
+            catch (Exception ex)
+            {
+                hSql.Rollback();
+                bRet = false;
+            }
+            finally
+            {
+                hSql.Close();
+            }
+            return bRet;
+        }
+        public bool openCashBox(string strCashBoxId,decimal nOpeningBalance)
+        {
+            bool bRet = true;
+            clsSqlFactory hSql = new clsSqlFactory();
+            try
+            {
+
+                hSql.NewCommand("select ISOPEN from CASHBOX where CASHBOXID=?");
+                hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                hSql.ExecuteReader();
+                if (hSql.Read())
+                {
+                    if (hSql.Reader.GetInt16(0) == 1)
+                    {
+                        bRet = false;
+                    }
+                    else
+                    {
+                        hSql.NewCommand("update CASHBOX set ISOPEN=1 where CASHBOXID=?");
+                        hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                        bRet = hSql.ExecuteNonQuery();
+                    }
+                }
+                else
+                {
+                    hSql.NewCommand("insert into CASHBOX(CASHBOXID,ISOPEN) values(?,1)");
+                    hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                    bRet = hSql.ExecuteNonQuery();
+                }
+                string strComputerName = getClientPCName();
+                hSql.NewCommand("select 1 from CASHBOXPC where CASHBOXID=? and PC=?");
+                hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                hSql.Com.Parameters.AddWithValue("PC", strComputerName);
+                bRet =bRet && hSql.ExecuteReader();
+                clsGlobalVariable objGlobal = new clsGlobalVariable();
+                if (bRet)
+                {
+                    if (hSql.Read())
+                    {
+                        hSql.NewCommand("update CASHBOXPC set UPDATED_DATE=getdate(),UPDATED_BY=? where CASHBOXID=? and PC=?");
+                        hSql.Com.Parameters.AddWithValue("UPDATED_BY",objGlobal.DMSFirstUserName );
+                        hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                        hSql.Com.Parameters.AddWithValue("PC", strComputerName);
+                        bRet = bRet && hSql.ExecuteNonQuery();
+                    }
+                    else
+                    {
+                        hSql.NewCommand("insert into CASHBOXPC(CASHBOXID,PC,UPDATED_DATE,UPDATED_BY) values(?,?,getdate(),?)");
+                        hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                        hSql.Com.Parameters.AddWithValue("PC", strComputerName);
+                        hSql.Com.Parameters.AddWithValue("UPDATED_BY", objGlobal.DMSFirstUserName);
+                       
+                        bRet = bRet && hSql.ExecuteNonQuery();
+                    }
+                }
+                if (bRet)
+                {
+                    hSql.NewCommand("insert into CASHREG(CASHBOXID,SMANID,EVENT,UPDATED_DATE,UPDATED_BY) values(?,?,'O',getdate(),?)");
+                    hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+                    hSql.Com.Parameters.AddWithValue("SMANID", objGlobal.DefaultSManID);
+                    hSql.Com.Parameters.AddWithValue("UPDATED_BY", objGlobal.DMSFirstUserName);
+                    hSql.ExecuteNonQuery();
+                    hSql.Com.Parameters.Clear();
+                    hSql.NewCommand("SELECT @@IDENTITY");
+                    hSql.ExecuteReader();
+                    hSql.Read();
+                   
+                        int nCashRegRowId = hSql.Reader.GetInt32(0);
+                        hSql.NewCommand("insert into CASHREGROW(CASHREGROWID,ROWNO,CASHFORM,CASHTYPE,AMOUNT,UPDATED_DATE,UPDATED_BY,QTY) values(?,1,'CASH',?,?,getdate(),?,0)");
+                        hSql.Com.Parameters.AddWithValue("CASHREGROWID", nCashRegRowId);
+                        hSql.Com.Parameters.AddWithValue("CASHTYPE", ConfigurationSettings.AppSettings["DefaultCashType"]);
+                        hSql.Com.Parameters.AddWithValue("AMOUNT", nOpeningBalance);
+                        hSql.Com.Parameters.AddWithValue("UPDATED_BY", objGlobal.DMSFirstUserName);
+                        hSql.ExecuteNonQuery();
+                    
+                   
+                }
+                if (bRet)
+                    hSql.Commit();
+                else
+                    hSql.Rollback();
+
+
+
+            }
+            catch (Exception ex)
+            {
+                hSql.Rollback();
+                bRet = false;
+            }
+            finally
+            {
+                hSql.Close();
+            }
+            return bRet;
+        }
+        public decimal getPreviousBalance(string strCashBoxId)
+        {
+            decimal nRet = 0;
+            clsSqlFactory hSql = new clsSqlFactory();
+            hSql.NewCommand("select top 1 isnull(b.AMOUNT,0) from CASHREG a left join CASHREGROW b on a.ROWID = b.CASHREGROWID "+
+            " and  b.CASHFORM ='CASH' where  a.EVENT = 'C' and  a.CASHBOXID =? order by a.UPDATED_DATE desc");
+            hSql.Com.Parameters.AddWithValue("CASHBOXID", strCashBoxId);
+            hSql.ExecuteReader();
+            if (hSql.Read())
+            {
+                nRet = hSql.Reader.GetDecimal(0);
+            }
+            return nRet;
+        }
+        public bool load()
+        {
+            
+            bool bRet = true;
+            clsSqlFactory hSql = new clsSqlFactory();
+            CashBoxes.Reset();
+            CashBoxes.Columns.Add("CASHBOXID");
+            CashBoxes.Columns.Add("NAME");
+            CashBoxes.Columns.Add("ISOPEN");
+            CashBoxes.Columns.Add("PC");
+
+            hSql.NewCommand("select a.C1,a.c2,ISNULL(b.ISOPEN,0),isnull((select top 1 PC from CASHBOXPC c where c.CASHBOXID = "+
+            " b.CASHBOXID),'') from CORW a left join CASHBOX b on a.C1 = b.CASHBOXID where a.CODAID = 'CASHBOXID'");
+            hSql.ExecuteReader();
+            int i = 0;
+            while (hSql.Read())
+            {
+                CashBoxes.Rows.Add();
+                CashBoxes.Rows[i]["CASHBOXID"] = hSql.Reader.GetString(0);
+                CashBoxes.Rows[i]["NAME"] = hSql.Reader.GetString(1);
+                CashBoxes.Rows[i]["ISOPEN"] = hSql.Reader.GetInt16(2);
+                CashBoxes.Rows[i]["PC"] = hSql.Reader.GetString(3);
+                i++;
+
+            }
+            hSql.Close();
+            
+            return bRet;
+        }
+        public void fillGridViewVehicleSales(System.Windows.Forms.DataGridView invoiceTable, string paidInvoice)
+        {
+            bool bRet = true;
+            clsSqlFactory hSql = new clsSqlFactory();
+            try
+            {
+                //bRet = bRet && hSql.ExecuteReader("select...");
+                //hSql.NewCommand("select...");
+                //hSql.ExecuteReader();
+                if (paidInvoice == "unpaid")
+                {
+                    //                                          0     1      2     3     4     5     6      
+                    bRet = bRet && hSql.ExecuteReader("select ORDNO,CUSTNO,LNAME,FNAME,BILLD,RECNO,INVSUM from ASVIEW_CAREG_UNPAID_INVOICE where APPAREA = 'A'");
+                }
+                else
+                {
+                    //                                          0     1      2     3     4     5          6        7       8        9
+                    bRet = bRet && hSql.ExecuteReader("select ORDNO,CUSTNO,LNAME,FNAME,BILLD,RECNO,AMOUNTTOPAY,TOTPAID,RECEIPTNO,PAYDATE from ASVIEW_CAREG_PAID_INVOICE where MODULE = 'VA'");
+                }
+                while (bRet && hSql.Read())
+                {
+                    invoiceTable.Rows.Add();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colType"].Value = "Vehicle sales";
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colOrderNo"].Value = hSql.GetString(0).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustNo"].Value = hSql.GetString(1).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustomerName"].Value = hSql.GetString(2).ToString() + " " + hSql.GetString(3).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colStatus"].Value = paidInvoice;
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceNo"].Value = hSql.GetString(5);
+                    if(paidInvoice == "paid") 
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colReceiptNo"].Value = hSql.GetString(8);
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceDate"].Value = hSql.GetDateTime(4).ToString("yyyy.MM.dd");
+                    if (paidInvoice == "paid") 
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentDate"].Value = hSql.GetDateTime(9).ToString("yyyy.MM.dd");
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceSum"].Value = hSql.Reader.GetDecimal(6).ToString("N6").TrimEnd('0').Trim(',');
+                    if (paidInvoice == "paid")
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentSum"].Value = hSql.Reader.GetDecimal(7).ToString("N6").TrimEnd('0').Trim(',');
+
+                }
+            }
+            catch (Exception ex) { System.Windows.Forms.MessageBox.Show(ex.ToString());}
+            finally
+            {
+                hSql.Close();
+            }
+        }
+        public void fillGridViewWorkshop(System.Windows.Forms.DataGridView invoiceTable, string paidInvoice) {
+            bool bRet = true;
+            clsSqlFactory hSql = new clsSqlFactory();
+            try
+            {
+                if (paidInvoice == "unpaid")
+                {
+                    //                                          0     1      2     3     4     5     6      
+                    bRet = bRet && hSql.ExecuteReader("select ORDNO,CUSTNO,LNAME,FNAME,BILLD,RECNO,INVSUM from ASVIEW_CAREG_UNPAID_INVOICE where APPAREA = 'G'");
+                }
+                else
+                {
+                    //                                          0     1      2     3     4     5          6        7       8        9
+                    bRet = bRet && hSql.ExecuteReader("select ORDNO,CUSTNO,LNAME,FNAME,BILLD,RECNO,AMOUNTTOPAY,TOTPAID,RECEIPTNO,PAYDATE from ASVIEW_CAREG_PAID_INVOICE where MODULE = 'WO'");
+                }
+                while (bRet && hSql.Read())
+                {
+                    invoiceTable.Rows.Add();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colType"].Value = "Workshop";
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colOrderNo"].Value = hSql.GetString(0).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustNo"].Value = hSql.GetString(1).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustomerName"].Value = hSql.GetString(2).ToString() + " " + hSql.GetString(3).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colStatus"].Value = paidInvoice;
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceNo"].Value = hSql.GetString(5);
+                    if (paidInvoice == "paid")
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colReceiptNo"].Value = hSql.GetString(8);
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceDate"].Value = hSql.GetDateTime(4).ToString("yyyy.MM.dd");
+                    if (paidInvoice == "paid")
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentDate"].Value = hSql.GetDateTime(9).ToString("yyyy.MM.dd");
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceSum"].Value = hSql.Reader.GetDecimal(6).ToString("N6").TrimEnd('0').Trim(',');
+                    if (paidInvoice == "paid")
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentSum"].Value = hSql.Reader.GetDecimal(7).ToString("N6").TrimEnd('0').Trim(',');
+
+                }
+            }
+            catch (Exception ex) { System.Windows.Forms.MessageBox.Show(ex.ToString()); }
+            finally
+            {
+                hSql.Close();
+            }
+        }
+        public void fillGridViewSparePartSales(System.Windows.Forms.DataGridView invoiceTable, string paidInvoice)
+        {
+            bool bRet = true;
+            clsSqlFactory hSql = new clsSqlFactory();
+            try
+            {
+                if (paidInvoice == "unpaid")
+                {
+                    //                                          0     1      2     3     4     5     6      
+                    bRet = bRet && hSql.ExecuteReader("select ORDNO,CUSTNO,LNAME,FNAME,BILLD,RECNO,INVSUM from ASVIEW_CAREG_UNPAID_INVOICE where APPAREA = 'S'");
+                }
+                else
+                {
+                    //                                          0     1      2     3     4     5          6        7       8        9
+                    bRet = bRet && hSql.ExecuteReader("select ORDNO,CUSTNO,LNAME,FNAME,BILLD,RECNO,AMOUNTTOPAY,TOTPAID,RECEIPTNO,PAYDATE from ASVIEW_CAREG_PAID_INVOICE where MODULE = 'SP'");
+                }
+                while (bRet && hSql.Read())
+                {
+                    invoiceTable.Rows.Add();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colType"].Value = "Spare part sales";
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colOrderNo"].Value = hSql.GetString(0).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustNo"].Value = hSql.GetString(1).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustomerName"].Value = hSql.GetString(2).ToString() + " " + hSql.GetString(3).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colStatus"].Value = paidInvoice;
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceNo"].Value = hSql.GetString(5);
+                    if (paidInvoice == "paid")
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colReceiptNo"].Value = hSql.GetString(8);
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceDate"].Value = hSql.GetDateTime(4).ToString("yyyy.MM.dd");
+                    if (paidInvoice == "paid")
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentDate"].Value = hSql.GetDateTime(9).ToString("yyyy.MM.dd");
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceSum"].Value = hSql.Reader.GetDecimal(6).ToString("N6").TrimEnd('0').Trim(',');
+                    if (paidInvoice == "paid")
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentSum"].Value = hSql.Reader.GetDecimal(7).ToString("N6").TrimEnd('0').Trim(',');
+
+                }
+            }
+            catch (Exception ex) { System.Windows.Forms.MessageBox.Show(ex.ToString()); }
+            finally
+            {
+                hSql.Close();
+            }
+        }
+        public void fillGridViewCashRegister(System.Windows.Forms.DataGridView invoiceTable, string paidInvoice)
+        {
+            bool bRet = true;
+            clsSqlFactory hSql = new clsSqlFactory();
+            try
+            {
+                if (paidInvoice == "paid")
+                {
+                    //                                          0     1      2     3     4        5          6        7        8        9
+                    bRet = bRet && hSql.ExecuteReader("select ORDNO,CUSTNO,LNAME,FNAME,BILLD,RECEIPTNO,AMOUNTTOPAY,TOTPAID,RECEIPTNO,PAYDATE from ASVIEW_CAREG_PAID_INVOICE where MODULE != 'VA' and MODULE != 'WO' and MODULE != 'SP'");
+    
+                while (bRet && hSql.Read())
+                    {
+                    invoiceTable.Rows.Add();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colType"].Value = "Cash Register";
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colOrderNo"].Value = hSql.GetString(0).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustNo"].Value = hSql.GetString(1).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colCustomerName"].Value = hSql.GetString(2).ToString() + " " + hSql.GetString(3).ToString();
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colStatus"].Value = paidInvoice;
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceNo"].Value = hSql.GetString(5);
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colReceiptNo"].Value = hSql.GetString(8);
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceDate"].Value = hSql.GetDateTime(4).ToString("yyyy.MM.dd");
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentDate"].Value = hSql.GetDateTime(9).ToString("yyyy.MM.dd");
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colInvoiceSum"].Value = hSql.Reader.GetDecimal(6).ToString("N6").TrimEnd('0').Trim(',');
+                    invoiceTable.Rows[invoiceTable.RowCount - 2].Cells["colPaymentSum"].Value = hSql.Reader.GetDecimal(7).ToString("N6").TrimEnd('0').Trim(',');
+
+                    }
+                }
+            }
+            catch (Exception ex) { System.Windows.Forms.MessageBox.Show(ex.ToString()); }
+            finally
+            {
+                hSql.Close();
+            }
+        }
+    }
+}
+

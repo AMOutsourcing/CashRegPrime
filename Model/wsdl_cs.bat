@@ -1,0 +1,2 @@
+"c:\Program Files\Microsoft SDKs\Windows\v6.0A\Bin\x64\wsdl.exe" c:\Users\Trung\Documents\CashRegPrime\Model\ReportExecution2005.wsdl /n:ReportExecution2005 /o:c:\Users\Trung\Documents\CashRegPrime\Model\ReportExecution2005.cs
+pause
